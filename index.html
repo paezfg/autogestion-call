@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Autogestion</title>
-    <style>
+    <title>Autogestion</title> <style>
         body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
         .container { text-align: center; background: white; padding: 30px 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 90%; max-width: 450px; }
         .login-container, .app-container { width: 100%; }
@@ -58,13 +57,14 @@
     </div>
     <script>
         const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzIuay4WjQu2OcW1wb9ZQhRnzxU4tqLg8IhDNGiLV58m9NfYsZfOHcpATnVeVnWXziw/exec';
+        const originalTitle = document.title; // **NUEVO**: Guarda el título original de la página
 
         let operatorName = '', operatorFloor = '', statusInterval, cooldownInterval;
         let previousBathroomStatus = null;
-        // La línea del sonido ha sido eliminada.
 
         const loginContainer = document.getElementById('login-container');
         const appContainer = document.getElementById('app-container');
+        // ... (resto de las constantes sin cambios)
         const nameSelect = document.getElementById('name-select');
         const dniInput = document.getElementById('dni-input');
         const floorSelect = document.getElementById('floor-select');
@@ -144,6 +144,7 @@
 
         // --- MANEJO DE ESTADOS Y MENSAJES (Sin cambios) ---
         function setBathroomButtonState(state, data = {}) {
+            // ... (código sin cambios)
             bathroomButton.disabled = false;
             bathroomButton.className = '';
             statusMessageEl.style.display = 'none';
@@ -160,7 +161,7 @@
                     bathroomButton.onclick = () => sendAction('cancelar');
                     if (data.queuePosition) {
                         if (data.queuePosition === 1) {
-                            statusMessageEl.textContent = '¡Tu turno es el próximo!';
+                            statusMessageEl.textContent = '¡Tu turno es el próximo! Una vez que salga tu compañero/a te avisamos para que pases vos!';
                         } else {
                             statusMessageEl.textContent = `Estás en el lugar ${data.queuePosition} de la fila. Por favor, espera.`;
                         }
@@ -196,56 +197,65 @@
         }
         
         // --- LÓGICA DE LA APP ---
-async function checkStatus() {
-    if (!operatorName || !operatorFloor) return;
-    const response = await fetch(`${WEB_APP_URL}?action=checkStatus&nombre=${encodeURIComponent(operatorName)}&piso=${operatorFloor}`);
-    const data = await response.json();
-    
-    const newStatus = data.bathroomStatus;
+        async function checkStatus() {
+            if (!operatorName || !operatorFloor) return;
+            const response = await fetch(`${WEB_APP_URL}?action=checkStatus&nombre=${encodeURIComponent(operatorName)}&piso=${operatorFloor}`);
+            const data = await response.json();
+            
+            const newStatus = data.bathroomStatus;
+            if (previousBathroomStatus === 'En Fila' && newStatus === 'Turno Asignado') {
+                showAlert(); // **CAMBIO**: Llama a la nueva función de alerta
+            }
+            previousBathroomStatus = newStatus;
 
-    // --- INICIO DE CÓDIGO DE DEPURACIÓN ---
-    // Mostraremos en la consola qué está pasando en cada ciclo.
-    console.log(`Chequeando estado: Anterior='${previousBathroomStatus}', Nuevo='${newStatus}'`);
-    // --- FIN DE CÓDIGO DE DEPURACIÓN ---
+            // **NUEVO**: Si el título de la pestaña ha sido cambiado y el turno ya no está listo, lo reseteamos.
+            if (newStatus !== 'Turno Asignado' && document.title !== originalTitle) {
+                document.title = originalTitle;
+            }
 
-    if (previousBathroomStatus === 'En Fila' && newStatus === 'Turno Asignado') {
-        console.log("%c¡CONDICIÓN CUMPLIDA! Disparando notificación...", "color: green; font-weight: bold;");
-        showNotification();
-    }
-    previousBathroomStatus = newStatus; // Actualizamos el estado para el próximo chequeo
-
-    const now = new Date().getTime();
-    if (data.cooldownHasta && now < data.cooldownHasta) {
-        setBathroomButtonState('COOLDOWN', data);
-        return;
-    }
-    clearInterval(cooldownInterval);
-    cooldownTimerEl.textContent = '';
-    
-    switch (data.bathroomStatus) {
-        case 'En Fila': setBathroomButtonState('REQUESTED', data); break;
-        case 'Turno Asignado': setBathroomButtonState('TURN_READY', data); break;
-        case 'En Baño': setBathroomButtonState('IN_USE', data); break;
-        default: setBathroomButtonState('IDLE', data); break;
-    }
-}
+            const now = new Date().getTime();
+            if (data.cooldownHasta && now < data.cooldownHasta) {
+                setBathroomButtonState('COOLDOWN', data);
+                return;
+            }
+            clearInterval(cooldownInterval);
+            cooldownTimerEl.textContent = '';
+            
+            switch (data.bathroomStatus) {
+                case 'En Fila': setBathroomButtonState('REQUESTED', data); break;
+                case 'Turno Asignado': setBathroomButtonState('TURN_READY', data); break;
+                case 'En Baño': setBathroomButtonState('IN_USE', data); break;
+                default: setBathroomButtonState('IDLE', data); break;
+            }
+        }
         
-        function showNotification() {
-            // Notificación visual del navegador
+        // **NUEVA FUNCIÓN DE ALERTA**
+        function showAlert() {
+            // Cambia el título de la pestaña para llamar la atención.
+            document.title = "¡ES TU TURNO!";
+
+            // También intenta la notificación visual, no hace daño si funciona.
             if (Notification.permission === "granted") {
                 new Notification("¡Es tu turno!", {
                     body: "Ya puedes pasar al baño. Por favor, confirma en la aplicación.",
                     icon: "https://cdn-icons-png.flaticon.com/512/1053/1053228.png"
                 });
             }
-            // La notificación sonora ha sido eliminada.
         }
+        
+        // **NUEVO**: Resetea el título de la pestaña cuando el usuario vuelve a ella.
+        window.addEventListener('focus', () => {
+            if (document.title !== originalTitle) {
+                document.title = originalTitle;
+            }
+        });
         
         logoutButton.addEventListener('click', () => {
             localStorage.removeItem('operatorName');
-            localStorage.removeItem('operatorFloor');
+localStorage.removeItem('operatorFloor');
             clearInterval(statusInterval);
             clearInterval(cooldownInterval);
+            document.title = originalTitle; // Resetea el título al salir
             appContainer.style.display = 'none';
             loginContainer.style.display = 'block';
             dniInput.value = '';
@@ -253,6 +263,7 @@ async function checkStatus() {
             nameSelect.value = '';
         });
         async function sendAction(action) {
+            document.title = originalTitle; // Resetea el título al hacer una acción
             bathroomButton.disabled = true;
             const formData = new FormData();
             formData.append('action', action);
@@ -297,5 +308,3 @@ async function checkStatus() {
     </script>
 </body>
 </html>
-
-
