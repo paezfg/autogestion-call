@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autogestion</title>
+    <style>
+        body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
+        .container { text-align: center; background: white; padding: 30px 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 90%; max-width: 450px; }
+        .login-container, .app-container { width: 100%; }
+        h1, h2 { color: #333; }
+        select, input[type="password"] { width: 100%; padding: 12px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        .button-group { display: grid; grid-template-columns: 1fr; gap: 15px; }
+        button { width: 100%; padding: 15px; border: none; border-radius: 8px; color: white; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+        #login-button { background-color: #007bff; }
+        .btn-main { background-color: #007bff; }
+        .btn-cancel { background-color: #dc3545; }
+        .btn-go { background-color: #28a745; }
+        .btn-release { background-color: #17a2b8; }
+        .btn-secondary { background-color: #6c757d; }
+        .btn-logout { background-color: #ffc107; color: #333; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        #app-container { display: none; }
+        #status-message { min-height: 40px; margin-top: 20px; padding: 10px; border-radius: 8px; font-weight: bold; display: none; }
+        .msg-wait { background-color: #fff3cd; color: #856404; }
+        .msg-go { background-color: #d1ecf1; color: #0c5460; }
+        .msg-in-use { background-color: #d4edda; color: #155724; }
+        #cooldown-timer { color: #dc3545; font-weight: bold; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="login-container">
+            <h1>Sistema de Autogestión</h1>
+            <p>Por favor, identifícate para continuar</p>
+            <select id="name-select">
+                <option value="">Cargando operadores...</option>
+            </select>
+            <input type="password" id="dni-input" placeholder="Contraseña (DNI)">
+            <select id="floor-select">
+                <option value="">-- Selecciona tu piso --</option>
+                <option value="3">Piso 3</option>
+                <option value="4">Piso 4</option>
+            </select>
+            <button id="login-button">Ingresar</button>
+        </div>
+
+        <div id="app-container">
+            <h2 id="welcome-message"></h2>
+            <div class="button-group">
+                <button id="bathroom-button">Solicitar uso de baño</button>
+                <button id="break-button" class="btn-secondary">Salir de Break</button>
+                <button id="logout-button" class="btn-logout">Cerrar Sesión</button>
+            </div>
+            <div id="status-message"></div>
+            <p id="cooldown-timer"></p>
+        </div>
+    </div>
+    <script>
+        const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzIuay4WjQu2OcW1wb9ZQhRnzxU4tqLg8IhDNGiLV58m9NfYsZfOHcpATnVeVnWXziw/exec';
+
+        let operatorName = '', operatorFloor = '', statusInterval, cooldownInterval;
+        let previousBathroomStatus = null;
+        // La línea del sonido ha sido eliminada.
+
+        const loginContainer = document.getElementById('login-container');
+        const appContainer = document.getElementById('app-container');
+        const nameSelect = document.getElementById('name-select');
+        const dniInput = document.getElementById('dni-input');
+        const floorSelect = document.getElementById('floor-select');
+        const loginButton = document.getElementById('login-button');
+        const bathroomButton = document.getElementById('bathroom-button');
+        const breakButton = document.getElementById('break-button');
+        const logoutButton = document.getElementById('logout-button');
+        const statusMessageEl = document.getElementById('status-message');
+        const cooldownTimerEl = document.getElementById('cooldown-timer');
+
+        // --- LÓGICA DE INICIO Y LOGIN ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            const savedName = localStorage.getItem('operatorName');
+            const savedFloor = localStorage.getItem('operatorFloor');
+            if (savedName && savedFloor) {
+                startApp(savedName, savedFloor);
+            }
+            try {
+                const response = await fetch(`${WEB_APP_URL}?action=getUsersList`);
+                const data = await response.json();
+                nameSelect.innerHTML = '<option value="">-- Selecciona tu nombre --</option>';
+                data.users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user;
+                    option.textContent = user;
+                    nameSelect.appendChild(option);
+                });
+            } catch (error) {
+                nameSelect.innerHTML = '<option value="">Error al cargar usuarios</option>';
+            }
+        });
+        loginButton.addEventListener('click', async () => {
+            const name = nameSelect.value;
+            const dni = dniInput.value.trim();
+            const floor = floorSelect.value;
+            if (!name || !dni || !floor) {
+                alert('Por favor, completa todos los campos.');
+                return;
+            }
+            loginButton.disabled = true;
+            loginButton.textContent = 'Verificando...';
+            const formData = new FormData();
+            formData.append('action', 'validateLogin');
+            formData.append('nombre', name);
+            formData.append('dni', dni);
+            try {
+                const response = await fetch(WEB_APP_URL, { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.isValid) {
+                    localStorage.setItem('operatorName', name);
+                    localStorage.setItem('operatorFloor', floor);
+                    startApp(name, floor);
+                } else {
+                    alert('Nombre o DNI incorrecto. Por favor, intenta de nuevo.');
+                }
+            } catch (error) {
+                alert('Error de conexión. Intenta de nuevo.');
+            } finally {
+                loginButton.disabled = false;
+                loginButton.textContent = 'Ingresar';
+            }
+        });
+
+        function startApp(name, floor) {
+            operatorName = name;
+            operatorFloor = floor;
+            if (Notification.permission !== "granted") {
+                Notification.requestPermission();
+            }
+            document.getElementById('welcome-message').textContent = `Hola, ${operatorName} (Piso ${operatorFloor})`;
+            loginContainer.style.display = 'none';
+            appContainer.style.display = 'block';
+            checkStatus();
+            statusInterval = setInterval(checkStatus, 7000);
+            setBreakButtonState(false);
+        }
+
+        // --- MANEJO DE ESTADOS Y MENSAJES (Sin cambios) ---
+        function setBathroomButtonState(state, data = {}) {
+            bathroomButton.disabled = false;
+            bathroomButton.className = '';
+            statusMessageEl.style.display = 'none';
+            statusMessageEl.className = '';
+            switch (state) {
+                case 'IDLE':
+                    bathroomButton.textContent = 'Solicitar uso de baño 🚽';
+                    bathroomButton.classList.add('btn-main');
+                    bathroomButton.onclick = () => sendAction('solicitar');
+                    break;
+                case 'REQUESTED':
+                    bathroomButton.textContent = '❌ Cancelar pedido de baño';
+                    bathroomButton.classList.add('btn-cancel');
+                    bathroomButton.onclick = () => sendAction('cancelar');
+                    if (data.queuePosition) {
+                        if (data.queuePosition === 1) {
+                            statusMessageEl.textContent = '¡Tu turno es el próximo!';
+                        } else {
+                            statusMessageEl.textContent = `Estás en el lugar ${data.queuePosition} de la fila. Por favor, espera.`;
+                        }
+                    } else {
+                        statusMessageEl.textContent = '⏱️ Estás en la fila. Por favor, espera.';
+                    }
+                    statusMessageEl.classList.add('msg-wait');
+                    statusMessageEl.style.display = 'block';
+                    break;
+                case 'TURN_READY':
+                    bathroomButton.textContent = '¡Salgo al baño! 🗣️';
+                    bathroomButton.classList.add('btn-go');
+                    bathroomButton.onclick = () => sendAction('salgoAlBaño');
+                    statusMessageEl.textContent = '⏰ ¡Es tu turno! Haz click en "Salgo al baño" para confirmar.';
+                    statusMessageEl.classList.add('msg-go');
+                    statusMessageEl.style.display = 'block';
+                    break;
+                case 'IN_USE':
+                    bathroomButton.textContent = 'Liberar baño ✅';
+                    bathroomButton.classList.add('btn-release');
+                    bathroomButton.onclick = () => sendAction('liberar');
+                    statusMessageEl.textContent = '⚠️ Al volver, recuerda hacer click en "Liberar baño".';
+                    statusMessageEl.classList.add('msg-in-use');
+                    statusMessageEl.style.display = 'block';
+                    break;
+                case 'COOLDOWN':
+                    bathroomButton.textContent = 'Solicitar uso de baño 🚽';
+                    bathroomButton.classList.add('btn-main');
+                    bathroomButton.disabled = true;
+                    startCooldownTimer(data.cooldownHasta);
+                    break;
+            }
+        }
+        
+        // --- LÓGICA DE LA APP ---
+        async function checkStatus() {
+            if (!operatorName || !operatorFloor) return;
+            const response = await fetch(`${WEB_APP_URL}?action=checkStatus&nombre=${encodeURIComponent(operatorName)}&piso=${operatorFloor}`);
+            const data = await response.json();
+            
+            const newStatus = data.bathroomStatus;
+            if (previousBathroomStatus === 'En Fila' && newStatus === 'Turno Asignado') {
+                showNotification();
+            }
+            previousBathroomStatus = newStatus;
+
+            const now = new Date().getTime();
+            if (data.cooldownHasta && now < data.cooldownHasta) {
+                setBathroomButtonState('COOLDOWN', data);
+                return;
+            }
+            clearInterval(cooldownInterval);
+            cooldownTimerEl.textContent = '';
+            
+            switch (data.bathroomStatus) {
+                case 'En Fila': setBathroomButtonState('REQUESTED', data); break;
+                case 'Turno Asignado': setBathroomButtonState('TURN_READY', data); break;
+                case 'En Baño': setBathroomButtonState('IN_USE', data); break;
+                default: setBathroomButtonState('IDLE', data); break;
+            }
+        }
+        
+        function showNotification() {
+            // Notificación visual del navegador
+            if (Notification.permission === "granted") {
+                new Notification("¡Es tu turno!", {
+                    body: "Ya puedes pasar al baño. Por favor, confirma en la aplicación.",
+                    icon: "https://cdn-icons-png.flaticon.com/512/1053/1053228.png"
+                });
+            }
+            // La notificación sonora ha sido eliminada.
+        }
+        
+        logoutButton.addEventListener('click', () => {
+            localStorage.removeItem('operatorName');
+            localStorage.removeItem('operatorFloor');
+            clearInterval(statusInterval);
+            clearInterval(cooldownInterval);
+            appContainer.style.display = 'none';
+            loginContainer.style.display = 'block';
+            dniInput.value = '';
+            floorSelect.value = '';
+            nameSelect.value = '';
+        });
+        async function sendAction(action) {
+            bathroomButton.disabled = true;
+            const formData = new FormData();
+            formData.append('action', action);
+            formData.append('nombre', operatorName);
+            formData.append('piso', operatorFloor);
+            await fetch(WEB_APP_URL, { method: 'POST', body: formData });
+            if (action === 'liberar' || action === 'cancelar') {
+                 setBathroomButtonState('IDLE');
+                 statusMessageEl.style.display = 'none';
+            } else {
+                 await checkStatus();
+            }
+        }
+        function startCooldownTimer(endTime) {
+            clearInterval(cooldownInterval);
+            cooldownInterval = setInterval(() => {
+                const now = new Date().getTime();
+                const distance = endTime - now;
+                if (distance < 0) {
+                    clearInterval(cooldownInterval);
+                    cooldownTimerEl.textContent = '';
+                    checkStatus();
+                    return;
+                }
+                const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+                cooldownTimerEl.textContent = `Solicitud de baño inhabilitada por ${minutes}m ${seconds}s`;
+            }, 1000);
+        }
+        function setBreakButtonState(isInBreak) {
+             if(isInBreak) {
+                breakButton.textContent = 'Volver a la línea 🎧';
+                breakButton.onclick = () => {
+                    sendAction('volvioDeBreak');
+                    setBreakButtonState(false);
+                };
+             } else {
+                breakButton.textContent = 'Salir de Break 😀';
+                breakButton.onclick = () => setBreakButtonState(true);
+             }
+        }
+    </script>
+</body>
+</html>
