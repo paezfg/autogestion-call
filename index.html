@@ -196,32 +196,39 @@
         }
         
         // --- LÓGICA DE LA APP ---
-        async function checkStatus() {
-            if (!operatorName || !operatorFloor) return;
-            const response = await fetch(`${WEB_APP_URL}?action=checkStatus&nombre=${encodeURIComponent(operatorName)}&piso=${operatorFloor}`);
-            const data = await response.json();
-            
-            const newStatus = data.bathroomStatus;
-            if (previousBathroomStatus === 'En Fila' && newStatus === 'Turno Asignado') {
-                showNotification();
-            }
-            previousBathroomStatus = newStatus;
+async function checkStatus() {
+    if (!operatorName || !operatorFloor) return;
+    const response = await fetch(`${WEB_APP_URL}?action=checkStatus&nombre=${encodeURIComponent(operatorName)}&piso=${operatorFloor}`);
+    const data = await response.json();
+    
+    const newStatus = data.bathroomStatus;
 
-            const now = new Date().getTime();
-            if (data.cooldownHasta && now < data.cooldownHasta) {
-                setBathroomButtonState('COOLDOWN', data);
-                return;
-            }
-            clearInterval(cooldownInterval);
-            cooldownTimerEl.textContent = '';
-            
-            switch (data.bathroomStatus) {
-                case 'En Fila': setBathroomButtonState('REQUESTED', data); break;
-                case 'Turno Asignado': setBathroomButtonState('TURN_READY', data); break;
-                case 'En Baño': setBathroomButtonState('IN_USE', data); break;
-                default: setBathroomButtonState('IDLE', data); break;
-            }
-        }
+    // --- INICIO DE CÓDIGO DE DEPURACIÓN ---
+    // Mostraremos en la consola qué está pasando en cada ciclo.
+    console.log(`Chequeando estado: Anterior='${previousBathroomStatus}', Nuevo='${newStatus}'`);
+    // --- FIN DE CÓDIGO DE DEPURACIÓN ---
+
+    if (previousBathroomStatus === 'En Fila' && newStatus === 'Turno Asignado') {
+        console.log("%c¡CONDICIÓN CUMPLIDA! Disparando notificación...", "color: green; font-weight: bold;");
+        showNotification();
+    }
+    previousBathroomStatus = newStatus; // Actualizamos el estado para el próximo chequeo
+
+    const now = new Date().getTime();
+    if (data.cooldownHasta && now < data.cooldownHasta) {
+        setBathroomButtonState('COOLDOWN', data);
+        return;
+    }
+    clearInterval(cooldownInterval);
+    cooldownTimerEl.textContent = '';
+    
+    switch (data.bathroomStatus) {
+        case 'En Fila': setBathroomButtonState('REQUESTED', data); break;
+        case 'Turno Asignado': setBathroomButtonState('TURN_READY', data); break;
+        case 'En Baño': setBathroomButtonState('IN_USE', data); break;
+        default: setBathroomButtonState('IDLE', data); break;
+    }
+}
         
         function showNotification() {
             // Notificación visual del navegador
@@ -290,4 +297,5 @@
     </script>
 </body>
 </html>
+
 
